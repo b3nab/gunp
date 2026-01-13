@@ -1,91 +1,27 @@
 package main
 
 import (
-	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/storer"
+
 	// tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/lmittmann/tint" // Nice colored output
+	"gunp/internal/log"
 )
-
-const (
-	LevelTrace  = slog.Level(-8)
-	LevelDev    = slog.Level(-6)
-	LevelSilent = slog.Level(100)
-	LevelUser   = slog.Level(101)
-)
-
-var LevelNames = map[slog.Leveler]string{
-	LevelTrace:  "TRACE",
-	LevelDev:    "DEV",
-	LevelSilent: "SILENT",
-	LevelUser:   "",
-}
-
-type Logger struct {
-	*slog.Logger
-}
-
-func (l *Logger) Trace(msg string, args ...any) {
-	l.Log(context.TODO(), LevelTrace, msg, args...)
-}
-func (l *Logger) Dev(msg string, args ...any) {
-	l.Log(context.TODO(), LevelDev, msg, args...)
-}
-func (l *Logger) Print(msg string, args ...any) {
-	l.Log(context.TODO(), LevelUser, msg, args...)
-}
-
-func NewLogger() *Logger {
-	opts := &tint.Options{
-		Level:      LevelSilent,
-		TimeFormat: time.Kitchen,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.LevelKey {
-				level := a.Value.Any().(slog.Level)
-				if name, ok := LevelNames[level]; ok {
-					a.Value = slog.StringValue(name)
-				}
-			}
-			return a
-		},
-	}
-
-	return &Logger{
-		Logger: slog.New(tint.NewHandler(os.Stdout, opts)),
-	}
-}
-
-// var logLevel = new(slog.LevelVar)
-// func log(msg string, data ...any) {
-// 	if slog.Default().Enabled(context.TODO(), slog.LevelDebug) {
-// 		slog.Debug(msg, data...)
-// 	}
-// }
-
-var logger *Logger
 
 func main() {
-	// logHandler := tint.NewHandler(os.Stdout, &tint.Options{
-	// Level:      logLevel,
-	// TimeFormat: time.Kitchen,
-	// })
-	logger = NewLogger()
-	logHandler := logger.Handler()
-	slog.SetDefault(slog.New(logHandler))
+	logger.Initialize()
 
-	logger.Print("gunp - Git Unpushed")
+	logger.Get().Print("gunp - Git Unpushed")
 
-	logger.Print("By running gunp it will recursively explore all folders starting from the current, and count the unpushed commits of your git repositories.")
+	logger.Get().Print("By running gunp it will recursively explore all folders starting from the current, and count the unpushed commits of your git repositories.")
 
 	gunp()
 }
@@ -103,19 +39,19 @@ func gunp() {
 		stats := gitStats(currGitPath)
 		// slog.Debug("Git Status by repo", "stats", stats)
 		if len(stats.unpushedCommits) > 0 {
-			logger.Print("-", stats.path, len(stats.unpushedCommits))
+			logger.Get().Print("-", stats.path, len(stats.unpushedCommits))
 			globalCount = globalCount + len(stats.unpushedCommits)
 		}
 	}
 
-	logger.Print("Final Stats", "directory", rootDir, "# commits to push", globalCount)
+	logger.Get().Print("Final Stats", "directory", rootDir, "# commits to push", globalCount)
 
 }
 
 func rootCwd() string {
 	rootPath, err := os.Getwd()
 	if err != nil {
-		logger.Error("Get current directory: ", "err", err)
+		logger.Get().Error("Get current directory: ", "err", err)
 		os.Exit(1)
 	}
 
@@ -127,7 +63,7 @@ func rootCwd() string {
 func gitPaths(rootDir string) []string {
 	files, err := os.ReadDir(rootDir)
 	if err != nil {
-		logger.Error("Read Directory", "rootDir", rootDir, "err", err)
+		logger.Get().Error("Read Directory", "rootDir", rootDir, "err", err)
 		os.Exit(1)
 	}
 
@@ -168,7 +104,7 @@ type RepoStat struct {
 func gitStats(gitDir string) *RepoStat {
 	r, err := git.PlainOpen(gitDir)
 	if err != nil {
-		logger.Error("Git open repository", "gitDir", gitDir, "err", err)
+		logger.Get().Error("Git open repository", "gitDir", gitDir, "err", err)
 		// os.Exit(1)
 		return &RepoStat{
 			path:            gitDir,
@@ -177,7 +113,7 @@ func gitStats(gitDir string) *RepoStat {
 	}
 
 	unpushedCount := GetUnpushedCommits(r)
-	logger.Info("UNPUSHED", "gitDir", gitDir, "unpushed commits", len(unpushedCount))
+	logger.Get().Info("UNPUSHED", "gitDir", gitDir, "unpushed commits", len(unpushedCount))
 
 	return &RepoStat{
 		path:            gitDir,
@@ -191,13 +127,13 @@ func GetUnpushedCommits(repo *git.Repository) []*object.Commit {
 	// Get the local HEAD reference
 	head, err := repo.Head()
 	if err != nil {
-		logger.Error("get HEAD err:", "err", err)
+		logger.Get().Error("get HEAD err:", "err", err)
 		return commits
 	}
 
 	config, err := repo.Config()
 	if err != nil {
-		logger.Error("get CONFIG", "err", err)
+		logger.Get().Error("get CONFIG", "err", err)
 		return commits
 	}
 
@@ -216,7 +152,7 @@ func GetUnpushedCommits(repo *git.Repository) []*object.Commit {
 
 	remoteRef, err := repo.Reference(plumbing.ReferenceName(remoteName), true)
 	if err != nil {
-		logger.Error("get REMOTE", "remoteName", remoteName, "err", err)
+		logger.Get().Error("get REMOTE", "remoteName", remoteName, "err", err)
 		return commits
 		// goto iterCommits
 	}
@@ -227,12 +163,12 @@ func GetUnpushedCommits(repo *git.Repository) []*object.Commit {
 		return commits
 	}
 	stopHash = bases[0].Hash
-	logger.Debug("remoteRef", "remoteName", remoteName, "hash", remoteRef.Hash().String())
+	logger.Get().Debug("remoteRef", "remoteName", remoteName, "hash", remoteRef.Hash().String())
 
 	// iterCommits:
 
 	if stopHash == head.Hash() {
-		logger.Debug("Branch is behind remote - skipping -", "stopHash", stopHash, "headHash", head.Hash())
+		logger.Get().Debug("Branch is behind remote - skipping -", "stopHash", stopHash, "headHash", head.Hash())
 		return commits
 	}
 
@@ -241,14 +177,14 @@ func GetUnpushedCommits(repo *git.Repository) []*object.Commit {
 		To:   stopHash,
 	})
 	if err != nil {
-		logger.Error("get LOGS", "err", err)
+		logger.Get().Error("get LOGS", "err", err)
 		return commits
 	}
 
 	defer cIter.Close()
 
 	iterErr := cIter.ForEach(func(c *object.Commit) error {
-		logger.Debug("commit", "hash", c.Hash.String())
+		logger.Get().Debug("commit", "hash", c.Hash.String())
 		if c.Hash == stopHash {
 			return storer.ErrStop
 		}
@@ -256,7 +192,7 @@ func GetUnpushedCommits(repo *git.Repository) []*object.Commit {
 		return nil
 	})
 	if iterErr != nil {
-		logger.Error("iter COMMITS", "err", err)
+		logger.Get().Error("iter COMMITS", "err", err)
 		return commits
 	}
 
