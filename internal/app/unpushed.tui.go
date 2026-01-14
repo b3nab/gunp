@@ -6,9 +6,11 @@ import (
 	logger "gunp/internal/log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/stopwatch"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -40,9 +42,10 @@ type unpushedAppModel struct {
 	showDetail       bool
 	selectedRowIndex int
 	// ui elements
-	spinner  spinner.Model
-	progress progress.Model
-	table    table.Model
+	stopwatch stopwatch.Model
+	spinner   spinner.Model
+	progress  progress.Model
+	table     table.Model
 	// table *table.Table
 
 	// data
@@ -73,8 +76,9 @@ func NewUnpushedModel() unpushedAppModel {
 		showDetail:       false,
 		selectedRowIndex: 0,
 		// ui elements
-		progress: progress.New(progress.WithDefaultGradient()),
-		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("69")))),
+		stopwatch: stopwatch.NewWithInterval(time.Millisecond),
+		progress:  progress.New(progress.WithDefaultGradient()),
+		spinner:   spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("69")))),
 		// table: table.New().
 		// 	Headers([]string{"Repository", "Unpushed Commits"}...).
 		// 	Border(lipgloss.NormalBorder()).
@@ -169,6 +173,7 @@ func (m unpushedAppModel) getProgressPercent() float64 {
 
 func (m unpushedAppModel) Init() tea.Cmd {
 	return tea.Batch(
+		m.stopwatch.Init(),
 		m.spinner.Tick,
 		counterCmd(m.walkedCounter),
 		discoveryCmd(m.discoveryDoneCh, m.gitPathsCh),
@@ -211,6 +216,7 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.table.SetRows(rows)
 		m.state = finished
+		cmds = append(cmds, m.stopwatch.Stop())
 
 	case progress.FrameMsg:
 		progressModel, cmd := m.progress.Update(msg)
@@ -253,6 +259,9 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var tableCmd tea.Cmd
 	m.table, tableCmd = m.table.Update(msg)
 	cmds = append(cmds, tableCmd)
+	var stopwatchCmd tea.Cmd
+	m.stopwatch, stopwatchCmd = m.stopwatch.Update(msg)
+	cmds = append(cmds, stopwatchCmd)
 
 	if len(cmds) > 0 {
 		return m, tea.Batch(cmds...)
@@ -343,14 +352,20 @@ func (m unpushedAppModel) uiTitle(status status) string {
 	titleDiscoveryDone := fmt.Sprintf("👀 Repository Discovered: %d (walked directories: %d)", len(m.gitPaths), m.walkedCounter.Get())
 	titleScanning := fmt.Sprintf("🔍 Scanning Repositories... (%d/%d)", len(m.gunpRepos), len(m.gitPaths))
 	titleScanningDone := fmt.Sprintf("🔎 Repository Scanned: %d", len(m.gunpRepos))
+	var stopwatchView string
+	if m.stopwatch.Running() {
+		stopwatchView = fmt.Sprintf("\n%s\n", m.stopwatch.View())
+	} else {
+		stopwatchView = fmt.Sprintf("\nCompleted in %s\n", m.stopwatch.View())
+	}
 
 	switch status {
 	case loading:
-		return fmt.Sprintf("%s\n%s %s\n%s %s", titleGunp, m.spinner.View(), titleDiscovery, m.spinner.View(), titleScanning)
+		return fmt.Sprintf("%s%s\n%s %s\n%s %s", titleGunp, stopwatchView, m.spinner.View(), titleDiscovery, m.spinner.View(), titleScanning)
 	case scanning:
-		return fmt.Sprintf("%s\n%s\n%s %s", titleGunp, titleDiscoveryDone, m.spinner.View(), titleScanning)
+		return fmt.Sprintf("%s%s\n%s\n%s %s", titleGunp, stopwatchView, titleDiscoveryDone, m.spinner.View(), titleScanning)
 	case finished:
-		return fmt.Sprintf("%s\n%s\n%s", titleGunp, titleDiscoveryDone, titleScanningDone)
+		return fmt.Sprintf("%s%s\n%s\n%s", titleGunp, stopwatchView, titleDiscoveryDone, titleScanningDone)
 	}
 	return ""
 }
