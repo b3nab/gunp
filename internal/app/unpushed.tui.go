@@ -115,7 +115,7 @@ func discoveryCmd(discoveryDoneCh <-chan bool, gitPathsCh <-chan string) tea.Cmd
 			return discoveryDoneMsg{}
 		case gitPath, ok := <-gitPathsCh:
 			if !ok {
-				return nil
+				return discoveryDoneMsg{}
 			}
 			return discoveryProgressMsg{gitPath: gitPath}
 		}
@@ -149,7 +149,7 @@ func scanningCmd(scanningDoneCh <-chan bool, gunpReposCh <-chan *gunp.GunpRepo) 
 			return scanningDoneMsg{}
 		case gunpRepo, ok := <-gunpReposCh:
 			if !ok {
-				return nil
+				return scanningDoneMsg{}
 			}
 			return scanningProgressMsg{gunpRepo: gunpRepo}
 		}
