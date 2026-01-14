@@ -41,6 +41,7 @@ var instance *Logger
 
 func Initialize() {
 	opts := &tint.Options{
+		// Level:      LevelTrace,
 		Level:      LevelSilent,
 		TimeFormat: time.Kitchen,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
