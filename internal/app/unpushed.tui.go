@@ -69,6 +69,17 @@ func NewUnpushedModel() unpushedAppModel {
 			errorMessage: err.Error(),
 		}
 	}
+
+	uiTable := table.New(
+		table.WithColumns([]table.Column{
+			{Title: "ID"},
+			{Title: "Repository"},
+			{Title: "Unpushed Commits"},
+		}),
+		table.WithFocused(true),
+		table.WithStyles(TableStyle()),
+	)
+
 	return unpushedAppModel{
 		state:            loading,
 		width:            0,
@@ -79,19 +90,7 @@ func NewUnpushedModel() unpushedAppModel {
 		stopwatch: stopwatch.NewWithInterval(time.Millisecond),
 		progress:  progress.New(progress.WithDefaultGradient()),
 		spinner:   spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("69")))),
-		// table: table.New().
-		// 	Headers([]string{"Repository", "Unpushed Commits"}...).
-		// 	Border(lipgloss.NormalBorder()).
-		// 	BorderStyle(re.NewStyle().Foreground(lipgloss.Color("238"))).
-		// 	Border(lipgloss.ThickBorder()),
-		table: table.New(
-			table.WithColumns([]table.Column{
-				{Title: "ID"},
-				{Title: "Repository"},
-				{Title: "Unpushed Commits"},
-			}),
-			table.WithFocused(true),
-		),
+		table:     uiTable,
 		// data
 		walkedCounter: walkedCounter,
 		gitPaths:      []string{},
@@ -276,15 +275,12 @@ func (m unpushedAppModel) View() string {
 		return "Loading TUI..."
 	}
 
-	// mini components
-	uiTitle := m.uiTitle(m.state)
-
-	container := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder(), true).
-		Height(m.height - 2).
-		Width(m.width - 2).
-		AlignHorizontal(lipgloss.Center).
-		AlignVertical(lipgloss.Center)
+	// container := lipgloss.NewStyle().
+	// 	Border(lipgloss.RoundedBorder(), true).
+	// 	Height(m.height - 2).
+	// 	Width(m.width - 2).
+	// 	AlignHorizontal(lipgloss.Center).
+	// 	AlignVertical(lipgloss.Center)
 
 	// Calculate max width for each column:
 	// - longest item in column
@@ -292,21 +288,29 @@ func (m unpushedAppModel) View() string {
 	// - max width is container width / number of columns
 	columns := m.table.Columns()
 	rows := m.table.Rows()
+	takenWidth := 0
 	for i := range columns {
-		maxWidth := 0
+		if i == 0 {
+			columns[i].Width = 5
+			continue
+		}
+		// default maxWidth to m.width / number of columns
+		maxWidth := (m.width - takenWidth) / len(columns)
 		for _, r := range rows {
-			if len(r[i]) > maxWidth {
-				maxWidth = len(r[i])
+			minWidthRow := len(r[i])
+			if minWidthRow > maxWidth {
+				maxWidth = minWidthRow
 			}
 
 			if len(columns[i].Title) > maxWidth {
 				maxWidth = len(columns[i].Title)
 			}
 
-			if maxWidth > (container.GetWidth() / len(columns)) {
-				maxWidth = (container.GetWidth() / len(columns)) - 2
-			}
+			// if maxWidth > (container.GetWidth() / len(columns)) {
+			// 	maxWidth = (container.GetWidth() / len(columns)) - 2
+			// }
 		}
+		takenWidth += maxWidth
 		columns[i].Width = maxWidth
 	}
 	m.table.SetColumns(columns)
@@ -316,14 +320,14 @@ func (m unpushedAppModel) View() string {
 		// show progress and text
 		content = lipgloss.JoinVertical(
 			lipgloss.Center,
-			uiTitle,
+			m.uiTitle(),
 			"",
 			m.progress.View(),
 		)
 	case scanning:
 		content = lipgloss.JoinVertical(
 			lipgloss.Center,
-			uiTitle,
+			m.uiTitle(),
 			"",
 			m.progress.View(),
 		)
@@ -331,9 +335,11 @@ func (m unpushedAppModel) View() string {
 		// show the table with results
 		content = lipgloss.JoinVertical(
 			lipgloss.Center,
-			uiTitle,
+			m.uiTitle(),
 			"",
-			m.table.View(),
+			m.uiTable(),
+			"\n\n\n",
+			m.uiHelpText(),
 		)
 	}
 
@@ -346,26 +352,48 @@ func (m unpushedAppModel) View() string {
 	)
 }
 
-func (m unpushedAppModel) uiTitle(status status) string {
+func (m unpushedAppModel) uiTitle() string {
 	titleGunp := "GitUNPushed by b3nab"
 	titleDiscovery := fmt.Sprintf("👀 Discovering Repositories... %d (walked directories: %d)", len(m.gitPaths), m.walkedCounter.Get())
 	titleDiscoveryDone := fmt.Sprintf("👀 Repository Discovered: %d (walked directories: %d)", len(m.gitPaths), m.walkedCounter.Get())
 	titleScanning := fmt.Sprintf("🔍 Scanning Repositories... (%d/%d)", len(m.gunpRepos), len(m.gitPaths))
 	titleScanningDone := fmt.Sprintf("🔎 Repository Scanned: %d", len(m.gunpRepos))
-	var stopwatchView string
-	if m.stopwatch.Running() {
-		stopwatchView = fmt.Sprintf("\n%s\n", m.stopwatch.View())
-	} else {
-		stopwatchView = fmt.Sprintf("\nCompleted in %s\n", m.stopwatch.View())
-	}
 
-	switch status {
+	switch m.state {
 	case loading:
-		return fmt.Sprintf("%s%s\n%s %s\n%s %s", titleGunp, stopwatchView, m.spinner.View(), titleDiscovery, m.spinner.View(), titleScanning)
+		return fmt.Sprintf("%s%s\n%s %s\n%s %s", titleGunp, m.uiStopwatch(), m.uiSpinner(), titleDiscovery, m.uiSpinner(), titleScanning)
 	case scanning:
-		return fmt.Sprintf("%s%s\n%s\n%s %s", titleGunp, stopwatchView, titleDiscoveryDone, m.spinner.View(), titleScanning)
+		return fmt.Sprintf("%s%s\n%s\n%s %s", titleGunp, m.uiStopwatch(), titleDiscoveryDone, m.uiSpinner(), titleScanning)
 	case finished:
-		return fmt.Sprintf("%s%s\n%s\n%s", titleGunp, stopwatchView, titleDiscoveryDone, titleScanningDone)
+		return fmt.Sprintf("%s%s\n%s\n%s", titleGunp, m.uiStopwatch(), titleDiscoveryDone, titleScanningDone)
 	}
 	return ""
+}
+
+func (m unpushedAppModel) uiHelpText() string {
+	switch m.state {
+	case loading:
+		return "Press 'q' to quit, 'h' for help"
+	case scanning:
+		return "Press 'q' to quit, 'h' for help"
+	case finished:
+		return "Press 'q' to quit, 'j'/'k'/'up'/'down' to navigate, 'enter' to show detail"
+	}
+	return ""
+}
+
+func (m unpushedAppModel) uiStopwatch() string {
+	if m.stopwatch.Running() {
+		return fmt.Sprintf("\n%s\n", m.stopwatch.View())
+	} else {
+		return fmt.Sprintf("\nCompleted in %s\n", m.stopwatch.View())
+	}
+}
+
+func (m unpushedAppModel) uiSpinner() string {
+	return m.spinner.View()
+}
+
+func (m unpushedAppModel) uiTable() string {
+	return TableWrapperStyle().Render(m.table.View())
 }
