@@ -50,6 +50,7 @@ type unpushedAppModel struct {
 
 	// data
 	walkedCounter *gunp.Counter
+	unpushedCount int
 	gitPaths      []string
 	gunpRepos     []*gunp.GunpRepo
 
@@ -203,16 +204,20 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case scanningProgressMsg:
 		m.gunpRepos = append(m.gunpRepos, msg.gunpRepo)
+		m.unpushedCount += len(msg.gunpRepo.UnpushedCommits)
 		cmds = append(cmds, scanningCmd(m.scanningDoneCh, m.gunpReposCh))
 		cmds = append(cmds, m.progress.SetPercent(m.getProgressPercent()))
 
 	case scanningDoneMsg:
 		rows := []table.Row{}
+		unpushedCount := 0
 		for i, repo := range m.gunpRepos {
+			unpushedCount += len(repo.UnpushedCommits)
 			if len(repo.UnpushedCommits) > 0 {
 				rows = append(rows, table.Row{strconv.Itoa(i), repo.Path, strconv.Itoa(len(repo.UnpushedCommits))})
 			}
 		}
+		m.unpushedCount = unpushedCount
 		m.table.SetRows(rows)
 		m.state = finished
 		cmds = append(cmds, m.stopwatch.Stop())
@@ -244,12 +249,12 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selectedIndex, err := strconv.Atoi(selectedStrIndex); err == nil {
 					m.selectedRowIndex = selectedIndex
 				}
-			case "enter", " ":
-				if m.showDetail {
-					m.showDetail = false
-				} else {
-					m.showDetail = true
-				}
+				// case "enter", " ":
+				// 	if m.showDetail {
+				// 		m.showDetail = false
+				// 	} else {
+				// 		m.showDetail = true
+				// 	}
 			}
 		}
 	}
@@ -354,18 +359,20 @@ func (m unpushedAppModel) View() string {
 
 func (m unpushedAppModel) uiTitle() string {
 	titleGunp := "GitUNPushed by b3nab"
-	titleDiscovery := fmt.Sprintf("👀 Discovering Repositories... %d (walked directories: %d)", len(m.gitPaths), m.walkedCounter.Get())
-	titleDiscoveryDone := fmt.Sprintf("👀 Repository Discovered: %d (walked directories: %d)", len(m.gitPaths), m.walkedCounter.Get())
+	titleWalked := fmt.Sprintf("Walked Directories: %d", m.walkedCounter.Get())
+	titleDiscovery := fmt.Sprintf("👀 Discovering Repositories... %d", len(m.gitPaths))
+	titleDiscoveryDone := fmt.Sprintf("👀 Repository Discovered: %d", len(m.gitPaths))
 	titleScanning := fmt.Sprintf("🔍 Scanning Repositories... (%d/%d)", len(m.gunpRepos), len(m.gitPaths))
 	titleScanningDone := fmt.Sprintf("🔎 Repository Scanned: %d", len(m.gunpRepos))
+	titleUnpushed := fmt.Sprintf("🐙 Unpushed Commits: %d", m.unpushedCount)
 
 	switch m.state {
 	case loading:
-		return fmt.Sprintf("%s%s\n%s %s\n%s %s", titleGunp, m.uiStopwatch(), m.uiSpinner(), titleDiscovery, m.uiSpinner(), titleScanning)
+		return fmt.Sprintf("%s%s\n%s\n%s %s\n%s %s\n%s", titleGunp, m.uiStopwatch(), titleWalked, m.uiSpinner(), titleDiscovery, m.uiSpinner(), titleScanning, titleUnpushed)
 	case scanning:
-		return fmt.Sprintf("%s%s\n%s\n%s %s", titleGunp, m.uiStopwatch(), titleDiscoveryDone, m.uiSpinner(), titleScanning)
+		return fmt.Sprintf("%s%s\n%s\n%s\n%s %s\n%s", titleGunp, m.uiStopwatch(), titleWalked, titleDiscoveryDone, m.uiSpinner(), titleScanning, titleUnpushed)
 	case finished:
-		return fmt.Sprintf("%s%s\n%s\n%s", titleGunp, m.uiStopwatch(), titleDiscoveryDone, titleScanningDone)
+		return fmt.Sprintf("%s%s\n%s\n%s\n%s\n%s", titleGunp, m.uiStopwatch(), titleWalked, titleDiscoveryDone, titleScanningDone, titleUnpushed)
 	}
 	return ""
 }
