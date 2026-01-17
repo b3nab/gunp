@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/rmhubbert/bubbletea-overlay"
 )
 
 func StartUnpushedApp() {
@@ -35,18 +36,19 @@ const (
 )
 
 type unpushedAppModel struct {
-	state            status
-	width            int
-	height           int
-	errorMessage     string
-	showDetail       bool
-	selectedRowIndex int
+	state        status
+	width        int
+	height       int
+	errorMessage string
+	showDetail   bool
+	cursorRepo   int
+	cursorCommit int
 	// ui elements
-	stopwatch stopwatch.Model
-	spinner   spinner.Model
-	progress  progress.Model
-	table     table.Model
-	// table *table.Table
+	stopwatch    stopwatch.Model
+	spinner      spinner.Model
+	progress     progress.Model
+	table        table.Model
+	tableCommits table.Model
 
 	// data
 	walkedCounter *gunp.Counter
@@ -80,18 +82,29 @@ func NewUnpushedModel() unpushedAppModel {
 		table.WithFocused(true),
 		table.WithStyles(TableStyle()),
 	)
+	uiTableCommits := table.New(
+		table.WithColumns([]table.Column{
+			{Title: "Hash"},
+			{Title: "Author"},
+			{Title: "Message"},
+		}),
+		table.WithFocused(true),
+		table.WithStyles(TableStyle()),
+	)
 
 	return unpushedAppModel{
-		state:            loading,
-		width:            0,
-		height:           0,
-		showDetail:       false,
-		selectedRowIndex: 0,
+		state:        loading,
+		width:        0,
+		height:       0,
+		showDetail:   false,
+		cursorRepo:   0,
+		cursorCommit: 0,
 		// ui elements
-		stopwatch: stopwatch.NewWithInterval(time.Millisecond),
-		progress:  progress.New(progress.WithDefaultGradient()),
-		spinner:   spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("69")))),
-		table:     uiTable,
+		stopwatch:    stopwatch.NewWithInterval(time.Millisecond),
+		progress:     progress.New(progress.WithDefaultGradient()),
+		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("69")))),
+		table:        uiTable,
+		tableCommits: uiTableCommits,
 		// data
 		walkedCounter: walkedCounter,
 		gitPaths:      []string{},
@@ -102,6 +115,12 @@ func NewUnpushedModel() unpushedAppModel {
 		gitPathsCh:      gitPathsCh,
 		gunpReposCh:     gunpReposCh,
 	}
+}
+
+type uiUpdateMsg struct{}
+
+func uiUpdateCmd() tea.Cmd {
+	return nil
 }
 
 type discoveryProgressMsg struct {
@@ -184,6 +203,19 @@ func (m unpushedAppModel) Init() tea.Cmd {
 func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	// always pass msg to the table
+	var tableCmd tea.Cmd
+	if !m.showDetail {
+		m.table, tableCmd = m.table.Update(msg)
+		cmds = append(cmds, tableCmd)
+	} else {
+		m.tableCommits, tableCmd = m.tableCommits.Update(msg)
+		cmds = append(cmds, tableCmd)
+	}
+	var stopwatchCmd tea.Cmd
+	m.stopwatch, stopwatchCmd = m.stopwatch.Update(msg)
+	cmds = append(cmds, stopwatchCmd)
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -247,25 +279,23 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "down", "up", "j", "k":
 				selectedStrIndex := m.table.SelectedRow()[0]
 				if selectedIndex, err := strconv.Atoi(selectedStrIndex); err == nil {
-					m.selectedRowIndex = selectedIndex
+					m.cursorRepo = selectedIndex
 				}
-				// case "enter", " ":
-				// 	if m.showDetail {
-				// 		m.showDetail = false
-				// 	} else {
-				// 		m.showDetail = true
-				// 	}
+			case "enter", "v":
+				if m.showDetail {
+					m.showDetail = false
+				} else {
+					m.showDetail = true
+					rows := []table.Row{}
+					for _, cmt := range m.gunpRepos[m.cursorRepo].UnpushedCommits {
+						rows = append(rows, table.Row{cmt.Hash.String(), cmt.Author.String(), cmt.Message})
+					}
+					m.tableCommits.SetRows(rows)
+					cmds = append(cmds, uiUpdateCmd())
+				}
 			}
 		}
 	}
-
-	// always pass msg to the table
-	var tableCmd tea.Cmd
-	m.table, tableCmd = m.table.Update(msg)
-	cmds = append(cmds, tableCmd)
-	var stopwatchCmd tea.Cmd
-	m.stopwatch, stopwatchCmd = m.stopwatch.Update(msg)
-	cmds = append(cmds, stopwatchCmd)
 
 	if len(cmds) > 0 {
 		return m, tea.Batch(cmds...)
@@ -291,34 +321,8 @@ func (m unpushedAppModel) View() string {
 	// - longest item in column
 	// - longest column title
 	// - max width is container width / number of columns
-	columns := m.table.Columns()
-	rows := m.table.Rows()
-	takenWidth := 0
-	for i := range columns {
-		if i == 0 {
-			columns[i].Width = 5
-			continue
-		}
-		// default maxWidth to m.width / number of columns
-		maxWidth := (m.width - takenWidth) / len(columns)
-		for _, r := range rows {
-			minWidthRow := len(r[i])
-			if minWidthRow > maxWidth {
-				maxWidth = minWidthRow
-			}
-
-			if len(columns[i].Title) > maxWidth {
-				maxWidth = len(columns[i].Title)
-			}
-
-			// if maxWidth > (container.GetWidth() / len(columns)) {
-			// 	maxWidth = (container.GetWidth() / len(columns)) - 2
-			// }
-		}
-		takenWidth += maxWidth
-		columns[i].Width = maxWidth
-	}
-	m.table.SetColumns(columns)
+	m.table.SetColumns(updateWidthColumns(m.table, m.width))
+	m.tableCommits.SetColumns(updateWidthColumns(m.tableCommits, m.width))
 
 	switch m.state {
 	case loading:
@@ -353,11 +357,45 @@ func (m unpushedAppModel) View() string {
 		m.height,
 		lipgloss.Center,
 		lipgloss.Center,
-		content,
+		m.uiOverlay(
+			content,
+		),
 	)
 }
 
+func updateWidthColumns(t table.Model, w int) []table.Column {
+	columns := t.Columns()
+	rows := t.Rows()
+	takenWidth := 0
+	for i := range columns {
+		if i == 0 {
+			columns[i].Width = 5
+			continue
+		}
+		// default maxWidth to m.width / number of columns
+		maxWidth := (w - takenWidth) / len(columns)
+		for _, r := range rows {
+			minWidthRow := len(r[i])
+			if minWidthRow > maxWidth {
+				maxWidth = minWidthRow
+			}
+
+			if len(columns[i].Title) > maxWidth {
+				maxWidth = len(columns[i].Title)
+			}
+
+			if maxWidth > (w / len(columns)) {
+				maxWidth = (w / len(columns)) - 2
+			}
+		}
+		takenWidth += maxWidth
+		columns[i].Width = maxWidth
+	}
+	return columns
+}
+
 func (m unpushedAppModel) uiTitle() string {
+	// titleGunp := fmt.Sprintf("%d-%v\nGitUNPushed by b3nab", m.cursorRepo, m.showDetail)
 	titleGunp := "GitUNPushed by b3nab"
 	titleWalked := fmt.Sprintf("Walked Directories: %d", m.walkedCounter.Get())
 	titleDiscovery := fmt.Sprintf("👀 Discovering Repositories... %d", len(m.gitPaths))
@@ -384,7 +422,7 @@ func (m unpushedAppModel) uiHelpText() string {
 	case scanning:
 		return "Press 'q' to quit, 'h' for help"
 	case finished:
-		return "Press 'q' to quit, 'j'/'k'/'up'/'down' to navigate, 'enter' to show detail"
+		return "Press 'q' to quit, 'j'/'k'/'up'/'down' to navigate, 'v'/'enter' to toggle detail"
 	}
 	return ""
 }
@@ -402,5 +440,17 @@ func (m unpushedAppModel) uiSpinner() string {
 }
 
 func (m unpushedAppModel) uiTable() string {
+	m.table.SetStyles(TableStyle())
 	return TableWrapperStyle().Render(m.table.View())
+}
+
+func (m unpushedAppModel) uiOverlay(content string) string {
+	if m.showDetail {
+		selectedRepo := m.gunpRepos[m.cursorRepo]
+		m.tableCommits.SetStyles(TableStyle())
+		detailContent := fmt.Sprintf("Path: %s\nUnpushed Commits: %d\n%s", selectedRepo.Path, len(selectedRepo.UnpushedCommits), TableWrapperStyle().Render(m.tableCommits.View()))
+		detailView := TableWrapperStyle().Render(detailContent)
+		return overlay.Composite(detailView, content, overlay.Center, overlay.Center, 0.0, 0.0)
+	}
+	return content
 }
