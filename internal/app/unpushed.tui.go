@@ -85,6 +85,7 @@ func NewUnpushedModel() unpushedAppModel {
 	uiTableCommits := table.New(
 		table.WithColumns([]table.Column{
 			{Title: "Hash"},
+			{Title: "Date"},
 			{Title: "Author"},
 			{Title: "Message"},
 		}),
@@ -251,9 +252,9 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.unpushedCount = unpushedCount
 		m.table.SetRows(rows)
-		selectedStrIndex := m.table.SelectedRow()[0]
-		if selectedIndex, err := strconv.Atoi(selectedStrIndex); err == nil {
-			m.cursorRepo = selectedIndex
+		selectedRowIdx, err := getSelectedRow(m.table)
+		if err == nil {
+			m.cursorRepo = selectedRowIdx
 		}
 		m.state = finished
 		cmds = append(cmds, m.stopwatch.Stop())
@@ -281,9 +282,9 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case finished:
 			switch msg.String() {
 			case "down", "up", "j", "k":
-				selectedStrIndex := m.table.SelectedRow()[0]
-				if selectedIndex, err := strconv.Atoi(selectedStrIndex); err == nil {
-					m.cursorRepo = selectedIndex
+				selectedRowIdx, err := getSelectedRow(m.table)
+				if err == nil {
+					m.cursorRepo = selectedRowIdx
 				}
 			case "enter", "v":
 				if m.showDetail {
@@ -292,7 +293,7 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.showDetail = true
 					rows := []table.Row{}
 					for _, cmt := range m.gunpRepos[m.cursorRepo].UnpushedCommits {
-						rows = append(rows, table.Row{cmt.Hash.String(), cmt.Author.String(), cmt.Message})
+						rows = append(rows, table.Row{cmt.Hash.String(), cmt.Author.When.Format(time.RFC1123), cmt.Author.String(), cmt.Message})
 					}
 					m.tableCommits.SetRows(rows)
 					cmds = append(cmds, uiUpdateCmd())
@@ -365,37 +366,6 @@ func (m unpushedAppModel) View() string {
 			content,
 		),
 	)
-}
-
-func updateWidthColumns(t table.Model, w int) []table.Column {
-	columns := t.Columns()
-	rows := t.Rows()
-	takenWidth := 0
-	for i := range columns {
-		if i == 0 {
-			columns[i].Width = 5
-			continue
-		}
-		// default maxWidth to m.width / number of columns
-		maxWidth := (w - takenWidth) / len(columns)
-		for _, r := range rows {
-			minWidthRow := len(r[i])
-			if minWidthRow > maxWidth {
-				maxWidth = minWidthRow
-			}
-
-			if len(columns[i].Title) > maxWidth {
-				maxWidth = len(columns[i].Title)
-			}
-
-			if maxWidth > (w / len(columns)) {
-				maxWidth = (w / len(columns)) - 2
-			}
-		}
-		takenWidth += maxWidth
-		columns[i].Width = maxWidth
-	}
-	return columns
 }
 
 func (m unpushedAppModel) uiTitle() string {
