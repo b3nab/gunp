@@ -251,6 +251,10 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.unpushedCount = unpushedCount
 		m.table.SetRows(rows)
+		selectedStrIndex := m.table.SelectedRow()[0]
+		if selectedIndex, err := strconv.Atoi(selectedStrIndex); err == nil {
+			m.cursorRepo = selectedIndex
+		}
 		m.state = finished
 		cmds = append(cmds, m.stopwatch.Stop())
 
