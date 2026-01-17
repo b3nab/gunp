@@ -21,6 +21,7 @@ func TableStyle() table.Styles {
 
 func TableWrapperStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
+		Padding(2).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("240"))
 }
