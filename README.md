@@ -5,7 +5,7 @@ Recursively scan git repos for unpushed commits with a nice Terminal UI
 ## Installation
 
 ```sh
-go install github.com/b3nab/gunp
+go install github.com/b3nab/gunp@latest
 ```
 
 ## Usage
@@ -17,6 +17,7 @@ gunp
 ## Demo Fast 1 (1ms)
 
 Stats:
+
 - Total time: **1ms**
 - Directories Walked: **10**
 - Repositories Discovered/Scanned: **1**
@@ -27,6 +28,7 @@ Stats:
 ## Demo Fast 2 (9ms)
 
 Stats:
+
 - Total time: **9ms**
 - Directories Walked: **268**
 - Repositories Discovered/Scanned: **5**
@@ -37,6 +39,7 @@ Stats:
 ## Demo Heavy (44s)
 
 Stats:
+
 - Total time: **44s**
 - Directories Walked: **510034**
 - Repositories Discovered/Scanned: **120**
