@@ -118,8 +118,6 @@ func NewUnpushedModel() unpushedAppModel {
 	}
 }
 
-type uiUpdateMsg struct{}
-
 func uiUpdateCmd() tea.Cmd {
 	return nil
 }
@@ -163,6 +161,12 @@ type scanningProgressMsg struct {
 }
 type scanningDoneMsg struct{}
 
+func refreshScanningCmd() tea.Cmd {
+	return func() tea.Msg {
+		return scanningDoneMsg{}
+	}
+}
+
 func scanningCmd(scanningDoneCh <-chan bool, gunpReposCh <-chan *gunp.GunpRepo) tea.Cmd {
 	return func() tea.Msg {
 		select {
@@ -177,6 +181,40 @@ func scanningCmd(scanningDoneCh <-chan bool, gunpReposCh <-chan *gunp.GunpRepo) 
 			}
 			return scanningProgressMsg{gunpRepo: gunpRepo}
 		}
+	}
+}
+
+type refreshReposMsg struct {
+	// repos []*gunp.GunpRepo
+	chDone  chan bool
+	chPaths chan string
+	chRepos chan *gunp.GunpRepo
+}
+
+func refreshCmd(m unpushedAppModel) tea.Cmd {
+	return func() tea.Msg {
+		if len(m.gitPaths) > 0 {
+			scanDoneCh := make(chan bool)
+			gitPathsCh := make(chan string, 10)
+			gunpReposCh := make(chan *gunp.GunpRepo, 10)
+
+			// write pump
+			go func() {
+				defer close(gitPathsCh)
+				for _, p := range m.gitPaths {
+					gitPathsCh <- p
+				}
+			}()
+
+			// read pump
+			go func() {
+				defer close(scanDoneCh)
+				gunp.RefreshRepos(gitPathsCh, gunpReposCh)
+			}()
+
+			return refreshReposMsg{chDone: scanDoneCh, chPaths: gitPathsCh, chRepos: gunpReposCh}
+		}
+		return refreshReposMsg{}
 	}
 }
 
@@ -259,6 +297,12 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = finished
 		cmds = append(cmds, m.stopwatch.Stop())
 
+	case refreshReposMsg:
+		m.state = loading
+		m.scanningDoneCh = msg.chDone
+		m.gunpReposCh = msg.chRepos
+		// cmds = append(cmds, refreshScanningCmd())
+		cmds = append(cmds, scanningCmd(m.scanningDoneCh, m.gunpReposCh))
 	case progress.FrameMsg:
 		progressModel, cmd := m.progress.Update(msg)
 		m.progress = progressModel.(progress.Model)
@@ -287,6 +331,9 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursorRepo = selectedRowIdx
 				}
 			case "enter", "v":
+				if len(m.gitPaths) <= 0 {
+					break
+				}
 				if m.showDetail {
 					m.showDetail = false
 				} else {
@@ -298,6 +345,10 @@ func (m unpushedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.tableCommits.SetRows(rows)
 					cmds = append(cmds, uiUpdateCmd())
 				}
+			case "r":
+				m.showDetail = false
+				m.gunpRepos = []*gunp.GunpRepo{}
+				cmds = append(cmds, refreshCmd(m))
 			}
 		}
 	}
@@ -396,7 +447,7 @@ func (m unpushedAppModel) uiHelpText() string {
 	case scanning:
 		return "Press 'q' to quit, 'h' for help"
 	case finished:
-		return "Press 'q' to quit, 'j'/'k'/'up'/'down' to navigate, 'v'/'enter' to toggle detail"
+		return "Press 'q' to quit, 'j'/'k'/'up'/'down' to navigate, 'r' to refresh, 'v'/'enter' to toggle detail"
 	}
 	return ""
 }
