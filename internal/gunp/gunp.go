@@ -79,7 +79,7 @@ func gunp() {
 	globalCount := 0
 
 	for _, currGitPath := range paths {
-		stats := gitStats(currGitPath)
+		stats := GitStats(currGitPath)
 		// slog.Debug("Git Status by repo", "stats", stats)
 		if len(stats.UnpushedCommits) > 0 {
 			logger.Get().Print("-", stats.Path, len(stats.UnpushedCommits))
@@ -144,17 +144,18 @@ func fullpath(root string, pathName string) string {
 	return filepath.Join(root, pathName)
 }
 
-func gunpStats(gitPathsCh chan string, gunpReposCh chan *GunpRepo, numberOfWorkers int) []*GunpRepo {
+func RefreshRepos(gitPathsCh chan string, gunpReposCh chan *GunpRepo) []*GunpRepo {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var gunpRepos []*GunpRepo
+	numberOfWorkers := 10
 
 	for i := 0; i < numberOfWorkers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for gitPath := range gitPathsCh {
-				stats := gitStats(gitPath)
+				stats := GitStats(gitPath)
 				if gunpReposCh != nil {
 					gunpReposCh <- stats
 				}
@@ -173,7 +174,36 @@ func gunpStats(gitPathsCh chan string, gunpReposCh chan *GunpRepo, numberOfWorke
 	return gunpRepos
 }
 
-func gitStats(gitDir string) *GunpRepo {
+func gunpStats(gitPathsCh chan string, gunpReposCh chan *GunpRepo, numberOfWorkers int) []*GunpRepo {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var gunpRepos []*GunpRepo
+
+	for i := 0; i < numberOfWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for gitPath := range gitPathsCh {
+				stats := GitStats(gitPath)
+				if gunpReposCh != nil {
+					gunpReposCh <- stats
+				}
+				mu.Lock()
+				gunpRepos = append(gunpRepos, stats)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if gunpReposCh != nil {
+		close(gunpReposCh)
+	}
+
+	return gunpRepos
+}
+
+func GitStats(gitDir string) *GunpRepo {
 	r, err := git.PlainOpen(gitDir)
 	if err != nil {
 		logger.Get().Error("Git open repository", "gitDir", gitDir, "err", err)
